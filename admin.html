@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeRS Admin | Master Pulse</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { background-color: #FAF7F2; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    .glass-card { background: white; border-radius: 20px; border: 1px solid #E5E1DA; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+    .sidebar-active { background: #F0FDF4; color: #065F46; border-right: 4px solid #059669; font-weight: 800; }
+    .stat-pill { font-size: 10px; font-weight: 900; text-transform: uppercase; padding: 4px 10px; border-radius: 8px; }
+    .animate-fade { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const SUPABASE_URL = 'https://ucjiodqfzkchukiobtbt.supabase.co'; 
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjamlvZHFmemtjaHVraW9idGJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDkyMTMsImV4cCI6MjA5MDAyNTIxM30.C1jDxc2e2ewG9RBA480uAbCeJROC2qYgbx8sk61Q8OE';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    function AdminDashboard() {
+      const [view, setView] = useState('overview');
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [stations, setStations] = useState([]);
+      const [users, setUsers] = useState([]);
+      const [logs, setLogs] = useState([]);
+      const [search, setSearch] = useState('');
+      const [loading, setLoading] = useState(true);
+      const [expandedUser, setExpandedUser] = useState(null);
+
+      useEffect(() => {
+        const adminSession = localStorage.getItem('mers_admin_session');
+        if (adminSession === 'true') setIsLoggedIn(true);
+      }, []);
+
+      const loadData = async () => {
+        setLoading(true);
+        const { data: st } = await supabase.from('dispensers').select('*').order('location_name');
+        const { data: us } = await supabase.from('users').select('*').not('full_name', 'is', null);
+        const { data: lg } = await supabase.from('logs').select('*, users(full_name, custom_id)').order('created_at', { ascending: false });
+        
+        if (st) setStations(st);
+        if (us) setUsers(us);
+        if (lg) setLogs(lg);
+        setLoading(false);
+      };
+
+      useEffect(() => { if(isLoggedIn) loadData(); }, [isLoggedIn]);
+
+      // --- CSV EXPORT FUNCTION ---
+      const downloadCSV = () => {
+        const headers = ["Timestamp", "Resident Name", "Station ID", "Location", "Quantity"];
+        const rows = logs.map(log => [
+          new Date(log.created_at).toLocaleString(),
+          log.users?.full_name || "Unknown",
+          log.users?.custom_id || "N/A",
+          log.location_name || "Station Dispatch",
+          log.quantity
+        ]);
+
+        let csvContent = "data:text/csv;charset=utf-8," 
+          + headers.join(",") + "\n" 
+          + rows.map(e => e.join(",")).join("\n");
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `MeRS_Activity_Report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+
+      const handleRename = async (id, oldName) => {
+        const n = prompt("New Station Name:", oldName);
+        if(n) { await supabase.from('dispensers').update({ location_name: n }).eq('id', id); loadData(); }
+      };
+      const handleHold = async (id, status) => {
+        await supabase.from('users').update({ is_on_hold: !status }).eq('id', id); loadData();
+      };
+      const handleDelete = async (id) => {
+        if(confirm("Delete user permanently?")) { await supabase.from('users').delete().eq('id', id); loadData(); }
+      };
+
+      const handleAddStation = async () => {
+        const name = prompt("Enter Location Name for New Dispenser:");
+        const cap = prompt("Enter Capacity (Default 60):", "60");
+        if(name) {
+          const { data, error } = await supabase.from('dispensers').insert([{ location_name: name, capacity: parseInt(cap), units_current: parseInt(cap) }]).select();
+          if (error) alert("Error creating station");
+          else { alert(`Station Created! UUID: ${data[0].id}`); loadData(); }
+        }
+      };
+
+      const handleLogin = async () => {
+        const u = document.getElementById('u').value;
+        const p = document.getElementById('p').value;
+        if(u === 'admin' && p === 'mers2024') {
+          localStorage.setItem('mers_admin_session', 'true');
+          setIsLoggedIn(true);
+          return;
+        }
+        const { data: adminAccount } = await supabase.from('admins').select('*').eq('username', u).eq('password_raw', p).maybeSingle();
+        if (adminAccount) {
+          localStorage.setItem('mers_admin_session', 'true');
+          setIsLoggedIn(true);
+        } else { alert("Access Denied."); }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('mers_admin_session');
+        setIsLoggedIn(false);
+      };
+
+      if (!isLoggedIn) return (
+        <div className="min-h-screen flex items-center justify-center bg-emerald-950 p-6">
+          <div className="glass-card p-10 w-full max-w-sm text-center">
+            <h1 className="text-2xl font-bold text-emerald-900 mb-6">MeRS Admin</h1>
+            <input id="u" className="w-full border p-4 rounded-xl mb-3 outline-none focus:ring-2 focus:ring-emerald-500" placeholder="Username" />
+            <input id="p" type="password" className="w-full border p-4 rounded-xl mb-6 outline-none focus:ring-2 focus:ring-emerald-500" placeholder="Password" />
+            <button onClick={handleLogin} className="w-full bg-emerald-800 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-transform">Enter Dashboard</button>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="flex min-h-screen">
+          <div className="w-64 bg-white border-r border-stone-200 fixed h-full flex flex-col p-8">
+            <div className="mb-10 flex items-center gap-2 font-bold text-emerald-900 text-xl tracking-tight"><span className="text-2xl">🌿</span> MeRS COMMAND</div>
+            <nav className="flex-grow space-y-1">
+              <button onClick={() => setView('overview')} className={`w-full text-left p-4 rounded-xl text-sm flex items-center gap-3 ${view === 'overview' ? 'sidebar-active' : 'text-stone-400 hover:text-emerald-700'}`}>📊 Overview</button>
+              <button onClick={() => setView('stations')} className={`w-full text-left p-4 rounded-xl text-sm flex items-center gap-3 ${view === 'stations' ? 'sidebar-active' : 'text-stone-400 hover:text-emerald-700'}`}>📦 Stations</button>
+              <button onClick={() => setView('users')} className={`w-full text-left p-4 rounded-xl text-sm flex items-center gap-3 ${view === 'users' ? 'sidebar-active' : 'text-stone-400 hover:text-emerald-700'}`}>👥 Users</button>
+              <button onClick={() => setView('logs')} className={`w-full text-left p-4 rounded-xl text-sm flex items-center gap-3 ${view === 'logs' ? 'sidebar-active' : 'text-stone-400 hover:text-emerald-700'}`}>📜 Activity Logs</button>
+            </nav>
+            <button onClick={handleLogout} className="text-red-400 text-xs font-bold pt-4 border-t border-stone-100 text-left">Logout</button>
+          </div>
+
+          <main className="ml-64 flex-grow p-12">
+            {loading ? (
+              <div className="flex items-center justify-center h-96 text-emerald-900 font-bold animate-pulse">Synchronizing Data...</div>
+            ) : (
+              <div className="animate-fade">
+                {view === 'overview' && (
+                  <div>
+                    <h2 className="text-3xl font-bold text-emerald-950 mb-10">Network Intelligence</h2>
+                    <div className="grid grid-cols-4 gap-6 mb-10">
+                      <div className="glass-card p-6 border-b-4 border-emerald-500"><p className="text-[10px] font-bold text-stone-400 uppercase">Active Users</p><p className="text-4xl font-black text-emerald-900">{users.length}</p></div>
+                      <div className="glass-card p-6 border-b-4 border-emerald-500"><p className="text-[10px] font-bold text-stone-400 uppercase">Total Stations</p><p className="text-4xl font-black text-emerald-900">{stations.length}</p></div>
+                      <div className="glass-card p-6 border-b-4 border-amber-400"><p className="text-[10px] font-bold text-stone-400 uppercase">Low Stock</p><p className="text-4xl font-black text-amber-500">{stations.filter(s => s.units_current < 5).length}</p></div>
+                      <div className="glass-card p-6 border-b-4 border-emerald-900"><p className="text-[10px] font-bold text-stone-400 uppercase">Total Collections</p><p className="text-4xl font-black text-emerald-900">{logs.length}</p></div>
+                    </div>
+                  </div>
+                )}
+
+                {view === 'stations' && (
+                  <div>
+                    <div className="flex justify-between items-end mb-8">
+                      <div><h2 className="text-3xl font-bold text-emerald-950">Station Management</h2><p className="text-stone-400 text-sm">Monitor network nodes</p></div>
+                      <button onClick={handleAddStation} className="bg-emerald-800 text-white px-6 py-3 rounded-xl font-bold text-sm">+ Deploy New Station</button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-6">
+                      {stations.map(s => (
+                        <div key={s.id} className="glass-card p-8 text-center">
+                          <h3 className="font-bold text-xl text-emerald-950 mb-4">{s.location_name}</h3>
+                          <div className="flex items-baseline justify-center gap-2 mb-6"><span className="text-5xl font-black text-emerald-900">{s.units_current}</span><span className="text-stone-300 font-bold">/ {s.capacity}</span></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {view === 'users' && (
+                  <div>
+                    <div className="flex justify-between items-end mb-8"><h2 className="text-3xl font-bold text-emerald-950">Resident Directory</h2><input className="border p-4 rounded-2xl w-80 text-sm shadow-sm outline-none" placeholder="Search..." onChange={e => setSearch(e.target.value)} /></div>
+                    <div className="glass-card overflow-hidden">
+                      <table className="w-full text-left">
+                        <thead className="bg-stone-50 border-b text-[10px] font-black uppercase text-stone-400 tracking-widest">
+                          <tr><th className="p-6">Resident Details</th><th className="p-6 text-right">Actions</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-50">
+                          {users.filter(u => (u.full_name || "").toLowerCase().includes(search.toLowerCase())).map(u => (
+                            <React.Fragment key={u.id}>
+                              <tr className={u.is_on_hold ? 'bg-amber-50' : 'hover:bg-stone-50/50'}>
+                                <td className="p-6"><div><p className="font-bold text-emerald-950">{u.full_name}</p><p className="text-xs text-stone-400">{u.email}</p></div></td>
+                                <td className="p-6 text-right space-x-2">
+                                  <button onClick={() => setExpandedUser(expandedUser === u.id ? null : u.id)} className="text-[10px] font-bold px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700">HISTORY</button>
+                                  <button onClick={() => handleHold(u.id, u.is_on_hold)} className="text-[10px] font-bold px-3 py-2 rounded-lg bg-white border border-stone-100">{u.is_on_hold ? 'RELEASE' : 'HOLD'}</button>
+                                  <button onClick={() => handleDelete(u.id)} className="text-[10px] font-bold px-3 py-2 rounded-lg bg-red-50 text-red-400">DELETE</button>
+                                </td>
+                              </tr>
+                              {expandedUser === u.id && (
+                                <tr>
+                                  <td colSpan="2" className="p-6 bg-stone-50/50">
+                                    <div className="space-y-2">
+                                      {logs.filter(l => l.user_id === u.id).map(l => (
+                                        <div key={l.id} className="flex justify-between text-xs bg-white p-3 rounded-lg border border-stone-100">
+                                          <span><strong>{l.quantity} Units</strong> at {l.location_name || 'Generic Station'}</span>
+                                          <span className="text-stone-400">{new Date(l.created_at).toLocaleString()}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {view === 'logs' && (
+                  <div>
+                    <div className="flex justify-between items-end mb-8">
+                      <div><h2 className="text-3xl font-bold text-emerald-950">Global Activity Logs</h2><p className="text-stone-400 text-sm">Real-time network usage</p></div>
+                      <button onClick={downloadCSV} className="bg-emerald-50 text-emerald-700 px-6 py-3 rounded-xl font-bold text-sm border border-emerald-100 flex items-center gap-2 hover:bg-emerald-100 transition-all">📥 Download CSV Report</button>
+                    </div>
+                    <div className="glass-card overflow-hidden">
+                      <table className="w-full text-left">
+                        <thead className="bg-stone-50 border-b text-[10px] font-black uppercase text-stone-400 tracking-widest">
+                          <tr><th className="p-6">Resident</th><th className="p-6">Location</th><th className="p-6">Quantity</th><th className="p-6 text-right">Timestamp</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-50">
+                          {logs.map(log => (
+                            <tr key={log.id} className="hover:bg-stone-50/50">
+                              <td className="p-6"><p className="font-bold text-emerald-950 text-sm">{log.users?.full_name || "Unknown"}</p></td>
+                              <td className="p-6 text-stone-600 text-sm">{log.location_name || "Station Dispatch"}</td>
+                              <td className="p-6 font-black text-emerald-700">{log.quantity} Units</td>
+                              <td className="p-6 text-right text-xs text-stone-400">{new Date(log.created_at).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AdminDashboard />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  <title>MeRS | PRO DISPENSER</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    :root { --glass-bg: rgba(255, 255, 255, 0.1); }
+    body { 
+      background: #020617; 
+      color: #f8fafc; 
+      font-family: ui-sans-serif, system-ui; 
+      overflow: hidden;
+      min-height: 100vh;
+    }
+    /* Mesh Gradient Background */
+    .mesh-bg {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
+      background-color: #b4e686a8;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(239, 68, 68, 0.863) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(34, 197, 94, 0.705) 0px, transparent 50%);
+    }
+    /* Glossy Glass Effect */
+    .station-ui { 
+      background: rgba(255, 240, 240, 0.63); 
+      backdrop-filter: blur(25px); 
+      -webkit-backdrop-filter: blur(25px);
+      border-radius: 32px; 
+      border: 1px solid rgba(0, 0, 0, 0.582); 
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .qty-btn { 
+      background: rgba(255, 255, 255, 0.03); 
+      backdrop-filter: blur(5px);
+      border: 1px solid rgba(0, 0, 0, 0.671); 
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+    }
+    .qty-btn:active:not(:disabled) { 
+      background: rgba(34, 197, 94, 0.2); 
+      border-color: #000000; 
+      transform: scale(0.95); 
+    }
+    .qty-btn:disabled { opacity: 0.1; cursor: not-allowed; }
+    #reader { border: none !important; width: 100% !important; }
+    #reader video { border-radius: 16px; object-fit: cover; }
+    .success-icon { animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes scaleIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div class="mesh-bg"></div>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    
+    const SUPABASE_URL = 'https://ucjiodqfzkchukiobtbt.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjamlvZHFmemtjaHVraW9idGJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDkyMTMsImV4cCI6MjA5MDAyNTIxM30.C1jDxc2e2ewG9RBA480uAbCeJROC2qYgbx8sk61Q8OE';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const STATION_ID = 'e9c824a5-3a0f-4eba-bb5d-0da705d030fe';
+
+    function ProDispenser() {
+      const [view, setView] = useState('SCAN'); 
+      const [user, setUser] = useState(null);
+      const [scannedFlow, setScannedFlow] = useState('standard'); // Stores flow from QR
+      const [stationLocation, setStationLocation] = useState('Unknown Station');
+      const [msg, setMsg] = useState('Initialize Terminal');
+      const [cameraActive, setCameraActive] = useState(false);
+      const scannerRef = useRef(null);
+
+      // Fetch station details on load
+      useEffect(() => {
+        const getStationInfo = async () => {
+          const { data } = await supabase.from('dispensers').select('location_name').eq('id', STATION_ID).single();
+          if (data) setStationLocation(data.location_name);
+        };
+        getStationInfo();
+      }, []);
+
+      const startCamera = () => {
+        setCameraActive(true);
+        setMsg('Scan Resident ID');
+        const scanner = new Html5Qrcode("reader");
+        scannerRef.current = scanner;
+        
+        scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: 250 },
+          (txt) => {
+            // FIX: Parsing logic to handle "MERS_ID:ID|FLOW:TYPE"
+            let rawId = txt.replace('MERS_ID:', '').trim();
+            let finalId = rawId;
+            let flowType = 'standard';
+
+            if (rawId.includes('|')) {
+              const parts = rawId.split('|');
+              finalId = parts[0]; // The actual ID
+              flowType = parts[1].replace('FLOW:', '').toLowerCase(); // The flow type
+            }
+
+            setScannedFlow(flowType);
+            verifyUser(finalId);
+            stopCamera();
+          },
+          () => {}
+        ).catch(err => {
+          setMsg('Camera Error');
+          setCameraActive(false);
+        });
+      };
+
+      const stopCamera = () => {
+        if (scannerRef.current) {
+          scannerRef.current.stop().then(() => {
+            setCameraActive(false);
+          }).catch(err => console.warn(err));
+        }
+      };
+
+      const verifyUser = async (id) => {
+        setMsg('Verifying...');
+        const { data, error } = await supabase.from('users').select('*').eq('custom_id', id).maybeSingle();
+        
+        if (data) { 
+          if (data.is_on_hold) {
+            setMsg('ACCOUNT ON HOLD');
+            setTimeout(() => setView('SCAN'), 3000);
+            return;
+          }
+          setUser(data); 
+          setView('SELECT'); 
+        } 
+        else { 
+          setMsg('INVALID ID'); 
+          setTimeout(() => setMsg('Ready to Scan'), 2000);
+        }
+      };
+
+      const handleDispense = async (qty) => {
+        const remaining = user.monthly_quota - user.units_used;
+        if (qty > remaining) return alert(`Limit exceeded.`);
+
+        setView('BUSY');
+        setMsg(`Dispensing ${qty} Units...`);
+
+        try {
+          // 1. Update User Quota
+          await supabase.from('users').update({ units_used: user.units_used + qty }).eq('id', user.id);
+          
+          // 2. Update Dispenser Inventory
+          const { data: disp } = await supabase.from('dispensers').select('units_current').eq('id', STATION_ID).single();
+          await supabase.from('dispensers').update({ units_current: (disp?.units_current || 0) - qty }).eq('id', STATION_ID);
+
+          // 3. Create History Log (Fixed Logic)
+          await supabase.from('logs').insert([{
+            user_id: user.id,
+            dispenser_id: STATION_ID,
+            quantity: qty,
+            flow_type: scannedFlow, // Uses the flow detected from QR
+            location_name: stationLocation // Uses actual station name from DB
+          }]);
+
+          setView('SUCCESS');
+          setTimeout(() => { 
+            setView('SCAN'); 
+            setUser(null); 
+            setScannedFlow('standard');
+            setCameraActive(false);
+            setMsg('Initialize Terminal'); 
+          }, 3000);
+        } catch (err) {
+          console.error(err);
+          setMsg('Error Occurred');
+          setTimeout(() => setView('SELECT'), 3000);
+        }
+      };
+
+      const remainingUnits = user ? (user.monthly_quota - user.units_used) : 0;
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 max-w-lg mx-auto relative z-10">
+          <header className="mb-6 text-center">
+              <h1 className="text-3xl font-black text-white italic tracking-tighter opacity-90">MeRS PRO</h1>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Station: {STATION_ID.slice(0,8)}</p>
+          </header>
+
+          <div className="w-full station-ui p-6 min-h-[420px] flex flex-col justify-center">
+            {view === 'SCAN' && (
+              <div className="space-y-6">
+                <div className="relative aspect-square w-full bg-white/5 rounded-2xl overflow-hidden flex items-center justify-center border border-white/10">
+                   <div id="reader" className="w-full h-full"></div>
+                   {!cameraActive && (
+                     <button 
+                        onClick={startCamera}
+                        className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 hover:bg-white/5 transition-all group"
+                     >
+                       <div className="p-5 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 group-active:scale-90 transition-transform">
+                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                       </div>
+                       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">Tap to Scan</span>
+                     </button>
+                   )}
+                </div>
+
+                <div className="text-center space-y-4">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{msg}</p>
+                  <input 
+                    type="text" 
+                    placeholder="MANUAL ID ENTRY" 
+                    className="w-full bg-white/5 border border-white/10 p-4 rounded-xl text-center font-bold tracking-widest text-white outline-none focus:border-white/30 transition-all placeholder:text-slate-600 text-sm"
+                    onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { verifyUser(e.target.value); e.target.value = ''; } }} 
+                  />
+                </div>
+              </div>
+            )}
+
+            {view === 'SELECT' && user && (
+              <div className="text-center py-4">
+                <div className="mb-8">
+                  <h2 className="text-2xl font-black text-white">{user.full_name || 'Resident'}</h2>
+                  <p className="text-[10px] font-bold text-green-400 mt-1 uppercase tracking-widest">Authorized | Quota: {remainingUnits}</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  {[1, 2, 3, 4].map(n => (
+                    <button key={n} onClick={() => handleDispense(n)} disabled={n > remainingUnits} className="qty-btn py-8 rounded-2xl group">
+                      <span className="text-3xl font-black block text-white/90 group-active:text-white">{n}</span>
+                      <span className="text-[10px] font-bold uppercase opacity-30 text-white">Units</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-6">
+                  {remainingUnits > 0 && remainingUnits <= 4 && (
+                    <button onClick={() => handleDispense(remainingUnits)} className="w-full py-4 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-xs font-black uppercase tracking-widest hover:bg-green-500/20 transition-all">Withdraw All ({remainingUnits})</button>
+                  )}
+                  <button onClick={() => setView('SCAN')} className="text-red-400/60 text-[10px] font-black uppercase tracking-widest hover:text-red-400 transition-colors">Abort Access</button>
+                </div>
+              </div>
+            )}
+
+            {view === 'BUSY' && (
+              <div className="text-center animate-pulse py-10">
+                  <div className="text-5xl mb-6 grayscale opacity-50">⚙️</div>
+                  <p className="text-lg font-black uppercase italic text-white/80">{msg}</p>
+              </div>
+            )}
+
+            {view === 'SUCCESS' && (
+              <div className="text-center success-icon py-10">
+                  <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-green-500/40">
+                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"></path></svg>
+                  </div>
+                  <p className="text-2xl font-black uppercase italic text-green-400 tracking-tighter">Dispensed</p>
+                  <p className="text-xs font-bold text-slate-500 mt-2 uppercase tracking-widest">System Resetting...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ProDispenser />);
+  </script>
+</body>
+</html>

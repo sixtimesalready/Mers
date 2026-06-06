@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeRS HQ | NGO</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { background-color: #0F172A; color: #F8FAFC; font-family: ui-sans-serif, system-ui; }
+    .hq-card { background: #1E293B; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
+    .bar-container { height: 180px; display: flex; align-items: flex-end; gap: 15px; padding-bottom: 30px; border-bottom: 1px solid #334155; }
+    .bar { background: linear-gradient(to top, #3B82F6, #60A5FA); border-radius: 4px 4px 0 0; min-width: 30px; position: relative; transition: height 0.5s ease; }
+    .bar-label { position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 800; color: #64748B; white-space: nowrap; }
+    .animate-fade { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const SUPABASE_URL = 'https://ucjiodqfzkchukiobtbt.supabase.co'; 
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjamlvZHFmemtjaHVraW9idGJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDkyMTMsImV4cCI6MjA5MDAyNTIxM30.C1jDxc2e2ewG9RBA480uAbCeJROC2qYgbx8sk61Q8OE';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    function HQSentinel() {
+      const [view, setView] = useState('overview');
+      const [isAuth, setIsAuth] = useState(false);
+      const [data, setData] = useState({ admins: [], users: [], stations: [], logs: [] });
+      const [editingUser, setEditingUser] = useState(null);
+      const [search, setSearch] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+      useEffect(() => {
+        const hqSession = localStorage.getItem('mers_hq_session');
+        if (hqSession === 'true') setIsAuth(true);
+      }, []);
+
+      const refreshAll = async () => {
+        setLoading(true);
+        const { data: ad } = await supabase.from('admins').select('*');
+        const { data: us } = await supabase.from('users').select('*').not('full_name', 'is', null);
+        const { data: st } = await supabase.from('dispensers').select('*');
+        const { data: lg } = await supabase.from('logs').select('*, users(full_name, custom_id)').order('created_at', { ascending: false });
+        
+        setData({ admins: ad || [], users: us || [], stations: st || [], logs: lg || [] });
+        setLoading(false);
+      };
+
+      useEffect(() => { if(isAuth) refreshAll(); }, [isAuth]);
+
+      const handleResetQuota = async (userId) => {
+        if(confirm("Reset resident counter? All used units will return to 0.")) {
+          await supabase.from('users').update({ units_used: 0 }).eq('id', userId);
+          refreshAll();
+        }
+      };
+
+      const handleExportCSV = () => {
+        let filteredLogs = data.logs;
+        if (dateRange.start && dateRange.end) {
+          filteredLogs = data.logs.filter(l => {
+            const date = new Date(l.created_at).toISOString().split('T')[0];
+            return date >= dateRange.start && date <= dateRange.end;
+          });
+        }
+        const headers = ["Date", "Time", "Resident", "ID", "Station", "Units"];
+        const rows = filteredLogs.map(l => [
+          new Date(l.created_at).toLocaleDateString(),
+          new Date(l.created_at).toLocaleTimeString(),
+          l.users?.full_name || 'Unknown',
+          l.users?.custom_id || 'N/A',
+          l.location_name || 'Station Dispatch',
+          l.quantity
+        ]);
+        const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].map(e => e.join(",")).join("\n");
+        const link = document.createElement("a");
+        link.href = encodeURI(csvContent);
+        link.download = `MeRS_HQ_Audit_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+      };
+
+      const handleLogin = async () => {
+        const u = document.getElementById('u').value;
+        const p = document.getElementById('p').value;
+        const { data: staff } = await supabase.from('hq_staff').select('*').eq('username', u).eq('password_raw', p).maybeSingle();
+        if (staff || (u === 'HQ_ROOT' && p === 'sentinel2026')) {
+          localStorage.setItem('mers_hq_session', 'true');
+          setIsAuth(true);
+        } else { alert("Clearance Denied."); }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('mers_hq_session');
+        setIsAuth(false);
+      };
+
+      const handleUpdateUser = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        await supabase.from('users').update({
+          full_name: fd.get('name'),
+          email: fd.get('email'),
+          monthly_quota: parseInt(fd.get('quota')),
+          units_used: parseInt(fd.get('units_used'))
+        }).eq('id', editingUser.id);
+        setEditingUser(null);
+        refreshAll();
+      };
+
+      if (!isAuth) return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-950">
+          <div className="hq-card p-10 w-full max-w-sm">
+            <h1 className="text-xl font-black mb-6 text-blue-500 text-center tracking-widest">HQ</h1>
+            <input id="u" className="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-3 text-white outline-none" placeholder="Staff ID" />
+            <input id="p" type="password" className="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl mb-6 text-white outline-none" placeholder="Access Key" />
+            <button onClick={handleLogin} className="w-full bg-blue-600 py-4 rounded-xl font-bold uppercase text-xs tracking-widest">Authorize</button>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="flex min-h-screen">
+          <aside className="w-64 bg-slate-900 border-r border-slate-800 p-8 fixed h-full flex flex-col">
+            <div className="text-blue-500 font-black text-xl mb-12 italic tracking-tighter">MeRS HQ</div>
+            <nav className="space-y-2 flex-grow">
+              <button onClick={() => setView('overview')} className={`w-full text-left p-4 rounded-lg text-xs font-bold ${view === 'overview' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>GLOBAL PULSE</button>
+              <button onClick={() => setView('admins')} className={`w-full text-left p-4 rounded-lg text-xs font-bold ${view === 'admins' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>🛡️ ADMINS</button>
+              <button onClick={() => setView('users')} className={`w-full text-left p-4 rounded-lg text-xs font-bold ${view === 'users' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>👥 USERS</button>
+              <button onClick={() => setView('logs')} className={`w-full text-left p-4 rounded-lg text-xs font-bold ${view === 'logs' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>📜 LOGS</button>
+              <button onClick={() => setView('stations')} className={`w-full text-left p-4 rounded-lg text-xs font-bold ${view === 'stations' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>📦 STATIONS</button>
+            </nav>
+            <button onClick={handleLogout} className="text-red-500 text-[10px] font-black tracking-widest uppercase py-4 border-t border-slate-800 text-left">Terminate Session</button>
+          </aside>
+
+          <main className="ml-64 p-12 w-full">
+            {view === 'overview' && (
+              <div className="animate-fade space-y-8">
+                <h2 className="text-3xl font-black">Organization Health</h2>
+                <div className="hq-card p-10 bg-slate-900/50">
+                  <h3 className="text-[10px] font-black text-slate-500 uppercase mb-8 tracking-widest">Regional Inventory Velocity</h3>
+                  <div className="bar-container">
+                    {data.stations.map(s => (
+                      <div key={s.id} className="flex-1 flex flex-col items-center group">
+                        <div className="bar w-full max-w-[45px]" style={{ height: `${(s.units_current / s.capacity) * 100}%` }}>
+                          <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">{s.units_current}</span>
+                          <span className="bar-label">{s.location_name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-6">
+                  <div className="hq-card p-6 border-l-4 border-blue-500"><p className="text-[10px] text-slate-500 font-bold uppercase">System Residents</p><p className="text-4xl font-black">{data.users.length}</p></div>
+                  <div className="hq-card p-6 border-l-4 border-emerald-500"><p className="text-[10px] text-slate-500 font-bold uppercase">Active Admins</p><p className="text-4xl font-black">{data.admins.length}</p></div>
+                  <div className="hq-card p-6 border-l-4 border-blue-500"><p className="text-[10px] text-slate-500 font-bold uppercase">Stations Online</p><p className="text-4xl font-black">{data.stations.length}</p></div>
+                </div>
+              </div>
+            )}
+
+            {view === 'admins' && (
+              <div className="animate-fade">
+                <h2 className="text-3xl font-black mb-8">Admin Hierarchy</h2>
+                <div className="hq-card">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-800 text-[10px] font-black uppercase text-slate-500 tracking-widest">
+                      <tr><th className="p-6">Staff Member</th><th className="p-6">Jurisdiction</th><th className="p-6 text-right">Clearance</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data.admins.map(a => (
+                        <tr key={a.id} className="hover:bg-slate-800/40">
+                          <td className="p-6 font-bold">{a.username}</td>
+                          <td className="p-6 text-slate-400 font-bold uppercase text-xs">{a.assigned_zone || 'Global'}</td>
+                          <td className="p-6 text-right"><button onClick={async () => { if(confirm("Revoke Access?")) { await supabase.from('admins').delete().eq('id', a.id); refreshAll(); }}} className="text-red-500 font-black text-[10px] tracking-widest uppercase">Revoke Access</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {view === 'users' && (
+              <div className="animate-fade">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-black">User Audit</h2>
+                    <input className="bg-slate-900 border border-slate-700 p-4 rounded-xl w-72 text-sm outline-none" placeholder="Filter records..." onChange={e => setSearch(e.target.value)} />
+                </div>
+                <div className="hq-card">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-800 text-[10px] font-black text-slate-500 uppercase">
+                      <tr><th className="p-6">Resident Details</th><th className="p-6">Consumption</th><th className="p-6">Operations</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data.users.filter(u => u.full_name.toLowerCase().includes(search.toLowerCase())).map(u => (
+                        <tr key={u.id} className="hover:bg-slate-800/20">
+                          <td className="p-6 font-bold">{u.full_name}<br/><span className="text-xs text-slate-500 font-normal">{u.email}</span></td>
+                          <td className="p-6 font-mono text-blue-400">{u.units_used} / {u.monthly_quota}</td>
+                          <td className="p-6 space-x-4">
+                            <button onClick={() => setEditingUser(u)} className="text-blue-400 font-bold text-xs uppercase">Edit</button>
+                            <button onClick={() => handleResetQuota(u.id)} className="text-emerald-500 font-bold text-xs uppercase">Zero Quota</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {view === 'logs' && (
+              <div className="animate-fade">
+                <div className="flex justify-between items-end mb-8">
+                  <div>
+                    <h2 className="text-3xl font-black">Sentinel Activity</h2>
+                    <div className="flex gap-4 mt-4">
+                      <div className="flex flex-col"><label className="text-[10px] font-bold mb-1">FROM</label><input type="date" className="bg-slate-900 border border-slate-700 p-2 rounded text-xs" onChange={e => setDateRange({...dateRange, start: e.target.value})} /></div>
+                      <div className="flex flex-col"><label className="text-[10px] font-bold mb-1">TO</label><input type="date" className="bg-slate-900 border border-slate-700 p-2 rounded text-xs" onChange={e => setDateRange({...dateRange, end: e.target.value})} /></div>
+                    </div>
+                  </div>
+                  <button onClick={handleExportCSV} className="bg-blue-600 px-6 py-3 rounded-xl font-bold text-xs uppercase">📥 Export to CSV</button>
+                </div>
+                <div className="hq-card">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-800 text-[10px] font-black uppercase text-slate-500">
+                      <tr><th className="p-6">Resident</th><th className="p-6">Location</th><th className="p-6 text-right">Units</th><th className="p-6 text-right">Timestamp</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {data.logs.map(log => (
+                        <tr key={log.id} className="hover:bg-slate-800/40">
+                          <td className="p-6 font-bold text-xs">{log.users?.full_name || 'N/A'}<br/><span className="text-[10px] text-slate-500">{log.users?.custom_id}</span></td>
+                          <td className="p-6 text-slate-400 uppercase text-[10px] font-bold">{log.location_name}</td>
+                          <td className="p-6 text-right font-black text-blue-400">{log.quantity}</td>
+                          <td className="p-6 text-right text-slate-500 font-mono text-xs">{new Date(log.created_at).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {view === 'stations' && (
+              <div className="animate-fade">
+                <h2 className="text-3xl font-black mb-8">Station Network</h2>
+                <div className="grid grid-cols-2 gap-6">
+                  {data.stations.map(s => (
+                    <div key={s.id} className="hq-card p-8 flex justify-between items-center border-l-4 border-blue-500">
+                      <div><p className="text-xl font-bold">{s.location_name}</p><p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{s.status || 'Active'}</p></div>
+                      <div className="text-right"><p className="text-3xl font-black text-blue-500">{s.units_current}</p><p className="text-[10px] text-slate-600 font-bold uppercase">Inventory</p></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {editingUser && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+                <form onSubmit={handleUpdateUser} className="hq-card p-10 w-full max-w-md bg-slate-900 border-blue-500">
+                  <h3 className="font-black mb-6 uppercase text-xs text-blue-500 tracking-widest">Update Resident Record</h3>
+                  <div className="space-y-4">
+                    <div className="space-y-1"><label className="text-[10px] text-slate-500 font-black">NAME</label><input name="name" defaultValue={editingUser.full_name} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm" /></div>
+                    <div className="space-y-1"><label className="text-[10px] text-slate-500 font-black">EMAIL</label><input name="email" defaultValue={editingUser.email} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1"><label className="text-[10px] text-slate-500 font-black">UNITS USED</label><input name="units_used" type="number" defaultValue={editingUser.units_used} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm" /></div>
+                      <div className="space-y-1"><label className="text-[10px] text-slate-500 font-black">QUOTA</label><input name="quota" type="number" defaultValue={editingUser.monthly_quota} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm" /></div>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 mt-8">
+                    <button type="submit" className="flex-grow bg-blue-600 py-4 rounded-xl font-bold uppercase text-xs">Save</button>
+                    <button type="button" onClick={() => setEditingUser(null)} className="px-6 border border-slate-700 rounded-xl text-xs uppercase">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<HQSentinel />);
+  </script>
+</body>
+</html>

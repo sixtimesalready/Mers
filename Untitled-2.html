@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>MeRS Network</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <style>
+    body { background-color: #FAF7F2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .glass-card { background: white; border-radius: 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.04); border: 1px solid #E5E1DA; }
+    .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-in { animation: fadeIn 0.4s ease-out forwards; }
+    .flow-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+    .flow-btn:active { transform: scale(0.95); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const SUPABASE_URL = 'https://ucjiodqfzkchukiobtbt.supabase.co'; 
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjamlvZHFmemtjaHVraW9idGJ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDkyMTMsImV4cCI6MjA5MDAyNTIxM30.C1jDxc2e2ewG9RBA480uAbCeJROC2qYgbx8sk61Q8OE';
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    function App() {
+      const [view, setView] = useState('login'); 
+      const [user, setUser] = useState(null);
+      const [history, setHistory] = useState([]);
+      const [isLoading, setIsLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [selectedFlow, setSelectedFlow] = useState(null);
+      
+      const [loginId, setLoginId] = useState('');
+      const [loginPin, setLoginPin] = useState('');
+      const [signupData, setSignupData] = useState({ name: '', email: '', pin: '' });
+      const qrRef = useRef(null);
+
+      useEffect(() => {
+        const savedUser = localStorage.getItem('mers_user_session');
+        if (savedUser) {
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+          setView('dashboard');
+          refreshUserData(parsedUser.id);
+        }
+      }, []);
+
+      useEffect(() => {
+        if (!user) return;
+        const channel = supabaseClient
+          .channel('schema-db-changes')
+          .on('postgres_changes', 
+            { event: 'INSERT', schema: 'public', table: 'logs', filter: `user_id=eq.${user.id}` }, 
+            (payload) => {
+              setHistory(prev => [payload.new, ...prev]);
+              refreshUserData(user.id);
+            }
+          )
+          .subscribe();
+        return () => supabaseClient.removeChannel(channel);
+      }, [user]);
+
+      const refreshUserData = async (id) => {
+        const { data } = await supabaseClient.from('users').select('*').eq('id', id).single();
+        if (data) {
+          setUser(data);
+          localStorage.setItem('mers_user_session', JSON.stringify(data));
+        }
+      };
+
+      const fetchHistory = async () => {
+        if (!user) return;
+        setIsLoading(true);
+        const { data, error } = await supabaseClient
+          .from('logs')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        
+        if (!error) setHistory(data || []);
+        setIsLoading(false);
+      };
+
+      const generateCustomId = (name) => {
+        const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+        const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+        return `${initials}${randomDigits}`;
+      };
+
+      const handleSignup = async (e) => {
+        e.preventDefault();
+        setIsLoading(true);
+        setError('');
+        const newId = generateCustomId(signupData.name);
+        try {
+          const { data, error: dbError } = await supabaseClient.from('users').insert([{
+            full_name: signupData.name, email: signupData.email, custom_id: newId,
+            pin_hash: signupData.pin, monthly_quota: 20, units_used: 0, is_active: true
+          }]).select().single();
+          if (dbError) throw dbError;
+          setUser(data);
+          localStorage.setItem('mers_user_session', JSON.stringify(data));
+          setView('dashboard');
+        } catch (err) { setError(err.message.includes('unique') ? 'Email in use' : 'Signup failed'); }
+        finally { setIsLoading(false); }
+      };
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        setIsLoading(true);
+        setError('');
+        try {
+          const { data, error: dbError } = await supabaseClient.from('users')
+            .select('*')
+            .or(`email.eq.${loginId},custom_id.eq.${loginId}`)
+            .eq('pin_hash', loginPin)
+            .maybeSingle();
+
+          if (dbError || !data) {
+            setError('Invalid credentials or PIN');
+          } else if (data.is_on_hold) {
+            setError('Account on hold');
+          } else {
+            setUser(data);
+            localStorage.setItem('mers_user_session', JSON.stringify(data));
+            setView('dashboard');
+          }
+        } catch (err) { setError('System error'); }
+        finally { setIsLoading(false); }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('mers_user_session');
+        setUser(null);
+        setView('login');
+        setLoginId('');
+        setLoginPin('');
+      };
+
+      const handleRegenerateId = async () => {
+        if (!confirm("This will change your Station ID. Your old ID will stop working. Continue?")) return;
+        setIsLoading(true);
+        const newId = generateCustomId(user.full_name);
+        const { data, error } = await supabaseClient.from('users').update({ custom_id: newId }).eq('id', user.id).select().single();
+        if (!error) {
+          setUser(data);
+          localStorage.setItem('mers_user_session', JSON.stringify(data));
+          alert(`New ID Generated: ${newId}`);
+        }
+        setIsLoading(false);
+      };
+
+      useEffect(() => {
+        if (view === 'qr' && qrRef.current && user && selectedFlow) {
+          qrRef.current.innerHTML = "";
+          new QRCode(qrRef.current, {
+            text: `MERS_ID:${user.custom_id}|FLOW:${selectedFlow.toUpperCase()}`,
+            width: 220, height: 220, colorDark: "#064E3B", correctLevel: QRCode.CorrectLevel.H
+          });
+        }
+        if (view === 'history') fetchHistory();
+      }, [view, user, selectedFlow]);
+
+      return (
+        <div className="max-w-md mx-auto min-h-screen flex flex-col p-6 safe-area-bottom">
+          
+          {view === 'login' && (
+            <div className="my-auto animate-in text-center">
+              <div className="mb-10">
+                <div className="text-5xl mb-3">🌿</div>
+                <h1 className="text-3xl font-bold text-emerald-900 tracking-tight">MeRS</h1>
+                <p className="text-stone-500 text-sm">Empowering Access & Dignity</p>
+              </div>
+              <form onSubmit={handleLogin} className="glass-card p-8">
+                <input className="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl p-4 mb-4 text-sm focus:border-emerald-500 outline-none transition-all" placeholder="Email or Station ID" value={loginId} onChange={(e) => setLoginId(e.target.value)} required />
+                <input type="password" maxLength="4" className="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl p-4 mb-4 text-sm focus:border-emerald-500 outline-none transition-all text-center tracking-[1em]" placeholder="PIN" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} required />
+                {error && <p className="text-red-500 text-[11px] mb-4 text-left font-medium">{error}</p>}
+                <button className="w-full bg-emerald-800 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-all">{isLoading ? 'Authenticating...' : 'Sign In'}</button>
+              </form>
+              <button onClick={() => setView('signup')} className="mt-8 text-emerald-800 font-bold text-sm">Create an Account</button>
+            </div>
+          )}
+
+          {view === 'signup' && (
+            <div className="my-auto animate-in">
+              <h2 className="text-2xl font-bold text-emerald-900 mb-6 text-center">Join the Network</h2>
+              <form onSubmit={handleSignup} className="glass-card p-8 space-y-4">
+                <input className="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl p-4 text-sm" placeholder="Full Name" onChange={(e)=>setSignupData({...signupData, name: e.target.value})} required />
+                <input type="email" className="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl p-4 text-sm" placeholder="Email Address" onChange={(e)=>setSignupData({...signupData, email: e.target.value})} required />
+                <input type="password" maxLength="4" className="w-full bg-stone-50 border-2 border-stone-100 rounded-2xl p-4 text-sm" placeholder="Set 4-Digit Station PIN" onChange={(e)=>setSignupData({...signupData, pin: e.target.value})} required />
+                <button className="w-full bg-emerald-800 text-white font-bold py-4 rounded-2xl shadow-lg">{isLoading ? 'Registering...' : 'Complete Registration'}</button>
+              </form>
+              <button onClick={() => setView('login')} className="w-full mt-6 text-stone-400 text-sm">Back to Login</button>
+            </div>
+          )}
+
+          {view === 'dashboard' && user && (
+            <div className="animate-in space-y-6">
+              <header className="flex justify-between items-center py-4">
+                <div>
+                  <h2 className="font-bold text-emerald-900 text-xl tracking-tight">Hi, {user.full_name.split(' ')[0]}</h2>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">ID: {user.custom_id}</p>
+                </div>
+                <button onClick={() => setView('profile')} className="w-10 h-10 bg-white border border-stone-200 rounded-full flex items-center justify-center text-lg shadow-sm">👤</button>
+              </header>
+
+              <div className="glass-card p-8 text-center bg-emerald-900 text-white relative overflow-hidden">
+                <div className="relative z-10">
+                  <p className="text-emerald-200 text-[10px] font-bold uppercase tracking-widest mb-1">Monthly Units Left</p>
+                  <div className="text-7xl font-black">{user.monthly_quota - user.units_used}</div>
+                </div>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+              </div>
+
+              <button onClick={() => setView('flow_selection')} className="glass-card p-6 flex items-center justify-between w-full group active:scale-95 transition-all border-2 border-emerald-100 bg-emerald-50/20">
+                <div className="text-left"><p className="font-bold text-emerald-900 text-lg">Collect Pad</p><p className="text-xs text-stone-500">Choose your flow and scan</p></div>
+                <div className="bg-emerald-800 p-4 rounded-2xl text-2xl shadow-md">✨</div>
+              </button>
+
+              <button onClick={() => setView('history')} className="glass-card p-6 flex items-center justify-between w-full group active:scale-95 transition-all">
+                <div className="text-left"><p className="font-bold text-emerald-900">Collection History</p><p className="text-xs text-stone-500">View your past collections</p></div>
+                <div className="bg-stone-50 p-3 rounded-2xl text-2xl">📜</div>
+              </button>
+
+              <div className="glass-card p-6 border-l-4 border-amber-400 bg-amber-50/30">
+                <p className="font-bold text-amber-900 text-sm">Manual Station ID</p>
+                <div className="bg-white/60 p-3 rounded-xl font-mono font-bold text-center text-amber-950 tracking-wider mt-3">{user.custom_id}</div>
+              </div>
+            </div>
+          )}
+
+          {view === 'flow_selection' && (
+            <div className="animate-in space-y-6">
+              <div className="flex items-center gap-4 py-4"><button onClick={() => setView('dashboard')} className="text-2xl text-stone-400">←</button><h2 className="text-xl font-bold text-emerald-900">Current Flow</h2></div>
+              <p className="text-center text-stone-500 text-sm px-4">Select your current flow to ensure the station dispenses the correct protection.</p>
+              
+              <div className="grid gap-4">
+                <button onClick={() => { setSelectedFlow('heavy'); setView('qr'); }} className="glass-card p-8 flex flex-col items-center gap-4 border-2 border-transparent hover:border-emerald-600 flow-btn">
+                  <div className="text-5xl">🩸🩸</div>
+                  <div className="text-center">
+                    <p className="font-black text-emerald-900 uppercase tracking-widest text-lg">Heavy Flow</p>
+                    <p className="text-xs text-stone-400 mt-1 italic">High-absorbency pads</p>
+                  </div>
+                </button>
+
+                <button onClick={() => { setSelectedFlow('light'); setView('qr'); }} className="glass-card p-8 flex flex-col items-center gap-4 border-2 border-transparent hover:border-emerald-600 flow-btn">
+                  <div className="text-5xl">💧</div>
+                  <div className="text-center">
+                    <p className="font-black text-emerald-900 uppercase tracking-widest text-lg">Light Flow</p>
+                    <p className="text-xs text-stone-400 mt-1 italic">Standard/Light pads</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view === 'history' && (
+            <div className="animate-in space-y-6">
+              <div className="flex items-center gap-4 py-4"><button onClick={() => setView('dashboard')} className="text-2xl text-stone-400">←</button><h2 className="text-xl font-bold text-emerald-900">History</h2></div>
+              <div className="glass-card overflow-hidden">
+                {isLoading ? <div className="p-10 text-center text-stone-400 text-sm">Loading logs...</div> : history.length === 0 ? <div className="p-10 text-center text-stone-400 text-sm italic">No history yet. Scan your QR code at a station to start.</div> :
+                 <div className="divide-y divide-stone-100">
+                    {history.map(log => (
+                      <div key={log.id} className="p-5 flex justify-between items-center">
+                        <div className="flex gap-4 items-center">
+                           <div className="bg-stone-50 h-10 w-10 rounded-xl flex items-center justify-center text-sm">
+                             {log.flow_type === 'heavy' ? '🩸' : log.flow_type === 'light' ? '💧' : '☁️'}
+                           </div>
+                           <div>
+                             <p className="font-bold text-emerald-900 text-sm">{log.quantity} Unit(s) <span className="text-[9px] ml-1 px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-500 uppercase tracking-tighter">{log.flow_type || 'Standard'}</span></p>
+                             <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{new Date(log.created_at).toLocaleDateString()} • {log.location_name || 'Station'}</p>
+                           </div>
+                        </div>
+                        <div className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded tracking-tighter">SUCCESS</div>
+                      </div>
+                    ))}
+                 </div>
+                }
+              </div>
+            </div>
+          )}
+
+          {view === 'profile' && user && (
+            <div className="animate-in space-y-6">
+              <div className="flex items-center gap-4 mb-4"><button onClick={() => setView('dashboard')} className="text-2xl text-stone-400">←</button><h2 className="text-xl font-bold text-emerald-900">Account Settings</h2></div>
+              <div className="glass-card p-6 space-y-6">
+                <div><label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Full Name</label><p className="text-emerald-950 font-medium">{user.full_name}</p></div>
+                <div><label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Email Address</label><p className="text-emerald-950 font-medium">{user.email}</p></div>
+                <div className="pt-4 border-t border-stone-100">
+                  <div className="flex justify-between items-end mb-2"><label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Station Access ID</label><button onClick={handleRegenerateId} className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">CHANGE ID</button></div>
+                  <p className="font-mono text-lg font-bold text-emerald-900">{user.custom_id}</p>
+                </div>
+              </div>
+              <button onClick={handleLogout} className="w-full py-4 text-red-500 font-bold text-sm bg-red-50 rounded-2xl">Sign Out</button>
+            </div>
+          )}
+
+          {view === 'qr' && (
+            <div className="my-auto animate-in text-center">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-emerald-900">Scan at Station</h2>
+                <p className="text-stone-500 text-xs font-bold uppercase tracking-widest mt-1">{selectedFlow} Flow Selected</p>
+              </div>
+              <div className="glass-card p-8 inline-block mb-8">
+                <div ref={qrRef} className="p-2 bg-white rounded-xl mx-auto border-4 border-emerald-900/5"></div>
+                <p className="mt-6 font-mono font-bold text-emerald-900 tracking-widest">{user.custom_id}</p>
+              </div>
+              <button onClick={() => { setView('dashboard'); setSelectedFlow(null); }} className="w-full text-emerald-800 font-bold py-4 bg-emerald-50 rounded-2xl">Finish & Close</button>
+            </div>
+          )}
+
+          <footer className="mt-auto pt-10 text-center opacity-30"><p className="text-[10px] uppercase tracking-[0.3em] font-bold">MeRS Network • V1.0</p></footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
