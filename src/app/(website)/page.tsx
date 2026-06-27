@@ -1,48 +1,23 @@
 import { IMAGES } from '@/components/Images';
 import { FloatingDNA, StaggerChildren, StaggerItem } from '@/components/Animations';
 import HeroReveal from '@/components/HeroReveal';
+import Nav from '@/components/Nav';
+import Footer from '@/components/Footer';
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-white text-black">
+    <main className="bg-white text-black overflow-hidden">
       {/* Background MERS Text */}
-      <div className="pointer-events-none select-none absolute inset-0 flex items-center justify-center overflow-hidden">
+      <div className="pointer-events-none select-none absolute inset-0 flex items-center justify-center">
         <p className="font-montserrat font-black text-[200px] sm:text-[400px] lg:text-[600px] text-blue-600/5 leading-none whitespace-nowrap">
           MERS
         </p>
       </div>
 
       {/* Content wrapper with relative positioning */}
-      <div className="relative z-10">
+      <div className="relative z-10 flex flex-col min-h-screen">
 
-      {/* Navigation */}
-      <nav className="relative z-50 py-4">
-        <div className="max-w-7xl mx-auto px-8 lg:px-12 flex flex-wrap justify-center lg:flex-nowrap lg:justify-between items-center gap-3">
-        {/* Logo */}
-        <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-20 lg:h-20 shrink-0">
-          <img src={IMAGES.MERS_LOGO} alt="MERS" className="object-contain" />
-        </div>
-        
-        {/* Nav links */}
-        <div className="flex items-center gap-1 bg-[#FF686B]/40 backdrop-blur-[4px] px-3 lg:px-6 py-2 rounded-full">
-          {['Home', 'About us', 'Our work', 'Contact us'].map((item) => (
-            <button key={item} className={`px-1.5 sm:px-2 lg:px-3 py-1 font-sans font-semibold text-xs sm:text-sm lg:text-base whitespace-nowrap transition-colors ${
-              item === 'Home' 
-                ? 'text-red-600 bg-white/50 rounded-full' 
-                : 'text-black hover:text-red-500'
-            }`}>
-              {item}
-            </button>
-          ))}
-        </div>
-        
-        {/* Get Involved */}
-        <button className="flex items-center gap-1.5 bg-[#17FA0B] hover:bg-[#10d008] px-3 sm:px-4 lg:px-6 py-2 lg:py-2.5 rounded-full font-sans font-semibold text-xs sm:text-sm lg:text-base text-black whitespace-nowrap shrink-0 transition-colors">
-          Get Involved
-          <img src={IMAGES.FORWARD_ARROW} alt="" className="w-3 h-3 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
-        </button>
-        </div>
-      </nav>
+        <Nav active="Home" />
 
       {/* Hero Section */}
       <section className="relative pt-24 lg:pt-32 pb-16">
@@ -336,53 +311,7 @@ export default function Home() {
          </div>
       </section>
 
-      {/* Footer */}
-      <footer className="mt-24 lg:mt-32 pb-16 w-full flex justify-center px-6 lg:px-12">
-         <div className="relative w-full bg-gradient-to-b from-[#ef3333] to-[#600] rounded-2xl text-white px-6 lg:px-12 py-16 overflow-hidden">
-           {/* Footer wave decorations */}
-           <div className="absolute left-[-56px] bottom-[-100px] w-[556px] h-[556px] pointer-events-none" aria-hidden="true">
-             <img src={IMAGES.FOOTER_WAVE} alt="" className="w-full h-full object-contain" />
-           </div>
-           <div className="absolute right-[-100px] bottom-[-120px] w-[556px] h-[556px] pointer-events-none" aria-hidden="true">
-             <img src={IMAGES.FOOTER_WAVE_2} alt="" className="w-full h-full object-contain" />
-           </div>
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-             {/* Nav links */}
-             <div className="flex flex-col gap-4 md:gap-[31px]">
-               {['Home', 'About Us', 'Our Work', 'Contact Us', 'Join Us'].map(item => (
-                 <button key={item} className="text-left font-black font-sans text-base lg:text-lg tracking-[-0.02em] hover:text-green-500 transition-colors uppercase">
-                   {item}
-                 </button>
-               ))}
-             </div>
-
-             {/* Policy links */}
-             <div className="flex flex-col gap-4 md:gap-[31px]">
-               <button className="text-left font-black font-sans text-base lg:text-lg tracking-[-0.02em] uppercase hover:text-green-400 transition-colors">Policy</button>
-               <button className="text-left font-black font-sans text-base lg:text-lg tracking-[-0.02em] uppercase whitespace-nowrap hover:text-green-400 transition-colors">Terms and Condition</button>
-               <div className="mt-8">
-                 <button className="bg-white hover:bg-green-300 rounded px-5 py-2.5 transition-colors">
-                   <span className="font-black font-sans text-base lg:text-lg tracking-[-0.02em] text-[#00b815] uppercase whitespace-nowrap">Donate now</span>
-                 </button>
-               </div>
-             </div>
-
-             {/* Download App */}
-             <div className="flex flex-col items-center md:items-start">
-               <p className="font-black font-sans text-base lg:text-lg tracking-[-0.02em] uppercase mb-4">Download App</p>
-               <div className="w-[180px] md:w-[224px] h-[180px] md:h-[224px]">
-                 <img src={IMAGES.APP_STORES} alt="Stores" className="w-full h-full object-contain" />
-               </div>
-             </div>
-           </div>
-
-           {/* Bottom branding */}
-           <div className="mt-16 flex flex-col md:flex-row items-center justify-between gap-4">
-             <p className="font-black font-sans text-5xl lg:text-8xl tracking-[-0.02em] uppercase">MERS</p>
-             <p className="font-instrument italic text-2xl lg:text-5xl leading-normal uppercase">For Every Woman</p>
-           </div>
-         </div>
-      </footer>
+      <Footer />
       </div>
     </main>
   );
