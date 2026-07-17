@@ -55,40 +55,38 @@ export default function Home() {
 	return (
 		<div className="space-y-14 lg:space-y-20">
 			{/* Hero Section */}
-			<section className="relative container p-10 lg:p-20">
-				<HeroReveal className="space-y-6">
-					<h1 className="text-6xl font-bold lg:text-8xl">
-						Empowerment
-						<br />
-						for <span className="text-red-600">Women</span>
-					</h1>
-					<p className="max-w-xl text-black lg:text-lg">
-						MERS is dedicated to Fighting Period Poverty Globally, by rendering world class experience and accessible technology to every woman.
-					</p>
+			<HeroReveal className="relative container space-y-6 pt-10 lg:pt-28">
+				<h1 className="text-[43px] leading-none font-black wrap-break-word sm:text-7xl lg:text-8xl">
+					Empowerment
+					<br />
+					for <span className="text-red-600">Women</span>
+				</h1>
+				<p className="max-w-xl text-black lg:text-lg">
+					MERS is dedicated to Fighting Period Poverty Globally, by rendering world class experience and accessible technology to every woman.
+				</p>
 
-					<div className="flex flex-wrap gap-3 lg:gap-4">
-						<button className="flex h-12 items-center gap-2 rounded-full bg-[#AE1417] px-6 text-base font-medium text-white transition-colors hover:bg-[#8a0f12]">
-							<Image src={IMAGES.UNICEF_LOGO} alt="" width={24} height={24} />
-							Support Our Work
-						</button>
-						<button className="flex h-12 items-center gap-2 rounded-full bg-[#AE1417] px-5 text-base font-medium text-white transition-colors hover:bg-[#8a0f12]">
-							<Info />
-							Learn More
-						</button>
-					</div>
-				</HeroReveal>
+				<div className="flex flex-wrap gap-3 lg:gap-4">
+					<button className="flex h-12 items-center gap-2 rounded-full bg-[#AE1417] px-6 text-base font-medium text-white transition-colors hover:bg-[#8a0f12]">
+						<Image src={IMAGES.UNICEF_LOGO} alt="" width={24} height={24} />
+						Support Our Work
+					</button>
+					<button className="flex h-12 items-center gap-2 rounded-full bg-[#AE1417] px-5 text-base font-medium text-white transition-colors hover:bg-[#8a0f12]">
+						<Info />
+						Learn More
+					</button>
+				</div>
 
 				{/* Hero Decorative PLUS */}
 				<Image
 					src={IMAGES.GLOSSY_PLUS}
 					alt=""
-					className="pointer-events-none absolute top-14 right-0 z-10 hidden -rotate-6 select-none lg:block"
+					className="pointer-events-none absolute top-14 right-0 z-10 hidden -rotate-6 select-none xl:block"
 					width={600}
 					height={600}
 				/>
 
 				{/* DNA 3D Icon - top right */}
-				<FloatAnimation className="pointer-events-none absolute top-10 right-0 z-20 hidden select-none lg:block">
+				<FloatAnimation className="pointer-events-none absolute top-10 right-0 z-20 hidden select-none xl:block">
 					<Image
 						src={IMAGES.DNA_3D_ICON}
 						alt=""
@@ -97,7 +95,7 @@ export default function Home() {
 						className="hidden drop-shadow-[-20px_30px_16px_rgba(0,0,0,0.25)] lg:block"
 					/>
 				</FloatAnimation>
-			</section>
+			</HeroReveal>
 
 			{/* The Problem Section */}
 			<section className="flex flex-col justify-between gap-5 bg-linear-to-b from-[#bf1c1c] to-[#590d0d] py-10 text-white lg:flex-row lg:gap-10 lg:py-0">
