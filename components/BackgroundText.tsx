@@ -35,7 +35,7 @@ const BackgroundText = () => {
 	return (
 		<svg
 			viewBox={viewBox}
-			className="absolute -top-24 left-0 -z-10 w-full text-blue-600/5 transition-opacity duration-300 select-none"
+			className="absolute left-0 -z-10 w-full text-blue-600/5 transition-opacity duration-300 select-none lg:-top-24"
 			style={{ opacity }}
 			aria-hidden="true"
 		>

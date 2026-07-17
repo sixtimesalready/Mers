@@ -33,12 +33,10 @@ export default function AboutUs() {
 	return (
 		<div className="space-y-10">
 			{/* Part 1: Hero */}
-			<section className="pt-20 lg:pt-28">
-				<div className="container px-8 pb-20 lg:px-12">
-					<div className="mb-12 text-right">
-						<h1 className="text-6xl leading-none font-black text-black sm:text-7xl lg:text-8xl">About Us</h1>
-						<p className="mt-3 text-lg font-medium text-black lg:text-2xl">From a dream to Action.</p>
-					</div>
+			<section className="space-y-12 pt-20 lg:pt-28">
+				<div className="container pt-10 text-right lg:pt-28">
+					<h1 className="text-6xl leading-none font-black text-black sm:text-7xl lg:text-8xl">About Us</h1>
+					<p className="mt-3 text-lg font-medium text-black lg:text-2xl">From a dream to Action.</p>
 				</div>
 				<div className="bg-black text-white">
 					<div className="flex flex-col lg:flex-row">

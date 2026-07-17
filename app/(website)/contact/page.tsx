@@ -8,8 +8,8 @@ export default function ContactUs() {
 	return (
 		<div className="space-y-10">
 			{/* Hero */}
-			<section className="container space-y-12">
-				<div className="py-12 text-right">
+			<section className="container space-y-12 pt-20 lg:pt-28">
+				<div className="text-right">
 					<h1 className="text-6xl leading-none font-black text-black sm:text-7xl lg:text-8xl">Contact Us</h1>
 					<p className="mt-3 text-lg font-medium text-black lg:text-2xl">We can&apos;t wait to hear from you</p>
 				</div>
